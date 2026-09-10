@@ -5,7 +5,7 @@ import vm from 'node:vm'
 const src = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   .replace(/^import .*$/gm, '')
   .replace(/^export /gm, '')
-  + '\n;globalThis.__wpTest = { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V1, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable }\n'
+  + '\n;globalThis.__wpTest = { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V1, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable, sessionEvents, liveSessions }\n'
 
 const sandbox = {
   console, Date, Intl, URL, URLSearchParams, Map, Set, WeakMap,
@@ -18,7 +18,7 @@ const sandbox = {
 }
 vm.createContext(sandbox)
 vm.runInContext(src, sandbox)
-const { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable } = sandbox.__wpTest
+const { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable, sessionEvents, liveSessions } = sandbox.__wpTest
 
 let failures = 0
 function check(label, actual, expected) {
@@ -231,6 +231,33 @@ const crossSession = {
   ],
 }
 check('跨时代会话按各自价目累计（9+8=17）', crossSvc.sessionCost(crossSession).cost, 17)
+
+// --- 新版 DSH API 漂移：事件只经 snapshotEvents() 暴露、list 是快照 store ---
+const million = { inputTokens: 0, outputTokens: 1000000, cacheReadTokens: 0, cacheWriteTokens: 0 }
+const snapshotSession = {
+  id: 'session-snapshot',
+  // 注意：刻意不提供 .events 属性，模拟新版 DSH 的 Session
+  snapshotEvents: () => [
+    headerEvent('deepseek-v4-flash', 'deepseek-official'),
+    { type: 'assistant/message', time: B(2026, 9, 10, 11, 0), data: { usage: million, turn: 1 } },
+  ],
+}
+check('sessionEvents 读到 snapshotEvents', sessionEvents(snapshotSession)?.length, 2)
+check('无事件源时返回 undefined', sessionEvents({ id: 'x' }), undefined)
+const compatSvc = pricingSvc()
+// 该消息发生在 9/10 11:00（v1 高峰，输出 9 元/1M）——必须按“发生时段”而不是“当前时段”计价
+check('新版会话仍按消息发生时段计价（v1 高峰 9 元）', compatSvc.sessionCost(snapshotSession).cost, 9)
+check('消息明细非空（历史 Tab 依赖）', compatSvc.messageCosts(snapshotSession).length > 0, true)
+const legacySession = { id: 'session-legacy', events: snapshotSession.snapshotEvents() }
+check('旧版 .events 仍然可用', compatSvc.sessionCost(legacySession).cost, 9)
+
+const storeSessions = {
+  list: { getSnapshot: () => ({ ids: ['a', 'b'], byId: {} }) },
+  get: (id) => ({ id, snapshotEvents: () => [] }),
+}
+check('新版 list 快照 store 可枚举', liveSessions(storeSessions).map((s) => s.id).join(','), 'a,b')
+check('旧版 list() 函数仍可用', liveSessions({ list: () => [{ id: 'x' }] }).length, 1)
+check('无 sessions 时返回空数组', liveSessions(undefined).length, 0)
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURES`)
 process.exit(failures === 0 ? 0 : 1)
