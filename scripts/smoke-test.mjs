@@ -5,7 +5,7 @@ import vm from 'node:vm'
 const src = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   .replace(/^import .*$/gm, '')
   .replace(/^export /gm, '')
-  + '\n;globalThis.__wpTest = { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS }\n'
+  + '\n;globalThis.__wpTest = { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V1, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable }\n'
 
 const sandbox = {
   console, Date, Intl, URL, URLSearchParams, Map, Set, WeakMap,
@@ -18,7 +18,7 @@ const sandbox = {
 }
 vm.createContext(sandbox)
 vm.runInContext(src, sandbox)
-const { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS } = sandbox.__wpTest
+const { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable } = sandbox.__wpTest
 
 let failures = 0
 function check(label, actual, expected) {
@@ -143,6 +143,94 @@ check('branch new messages cost > 0', branchNewCost.cost > 0, true)
 check('branch new messages only counts post-seed input', branchNewCost.uncachedInputTokens, 1000)
 check('branch new messages only counts post-seed output', branchNewCost.outputTokens, 500)
 
+
+// --- 官方定价页解析（2026-09 页面结构：三模型列 + <br> 锚点）---
+// 断言锚点容忍 <br> 变成的空格：写死无空格锚点会让整条解析链路静默失效。
+const PRICING_FIXTURE = `<table><tr><td>模型</td><td>deepseek-v4-flash</td><td>deepseek-v4-pro</td><td>deepseek-v4-flash-vision-exp</td></tr>
+<tr><td>价格<sup>(1)(2)</sup></td><td>百万tokens输入<br>（缓存命中）</td><td>空闲时段</td><td>0.05元</td><td>0.15元</td><td>0.05元</td></tr>
+<tr><td>高峰时段</td><td>0.10元</td><td>0.30元</td><td>0.10元</td></tr>
+<tr><td>百万tokens输入<br>（缓存未命中）</td><td>空闲时段</td><td>1.5元</td><td>4.5元</td><td>1.5元</td></tr>
+<tr><td>高峰时段</td><td>3.0元</td><td>9.0元</td><td>3.0元</td></tr>
+<tr><td>百万tokens输出</td><td>空闲时段</td><td>4.5元</td><td>13.5元</td><td>4.5元</td></tr>
+<tr><td>高峰时段</td><td>9.0元</td><td>27.0元</td><td>9.0元</td></tr>
+<tr><td>并发限制<sup>(3)</sup></td><td>2500</td><td>500</td><td>2500</td></tr></table>`
+
+check('priceSections 解析 <br> 锚点', priceSections(PRICING_FIXTURE) !== undefined, true)
+const fixturePeak = parsePeakTable(PRICING_FIXTURE)
+check('解析 flash 空闲命中 0.05', fixturePeak?.flash?.offPeak?.cacheRead, 0.05)
+check('解析 flash 空闲未命中 1.5', fixturePeak?.flash?.offPeak?.input, 1.5)
+check('解析 flash 高峰输出 9', fixturePeak?.flash?.peak?.output, 9)
+check('解析 pro 空闲未命中 4.5', fixturePeak?.pro?.offPeak?.input, 4.5)
+check('解析 pro 高峰命中 0.3', fixturePeak?.pro?.peak?.cacheRead, 0.3)
+check('无峰谷标签的表返回 undefined', parsePeakTable('<td>模型</td><td>deepseek-v4-flash</td>'), undefined)
+
+// 列顺序被打乱（vision 在前）时按表头取列，不能写死第 0/1 列。
+const PRICING_REORDERED = `<table><tr><td>模型</td><td>deepseek-v4-flash-vision-exp</td><td>deepseek-v4-flash</td><td>deepseek-v4-pro</td></tr>
+<tr><td>百万tokens输入<br>（缓存命中）</td><td>空闲时段 9.99元 0.02元 0.15元 高峰时段 9.98元 0.04元 0.30元</td></tr>
+<tr><td>百万tokens输入<br>（缓存未命中）</td><td>空闲时段 9.97元 1元 4.5元 高峰时段 9.96元 2元 9元</td></tr>
+<tr><td>百万tokens输出</td><td>空闲时段 9.95元 4元 13.5元 高峰时段 9.94元 8元 27元</td></tr>
+<tr><td>并发限制</td><td>2500</td><td>2500</td><td>500</td></tr></table>`
+check('乱序列：flash 高峰命中取第 1 列 0.04', parsePeakTable(PRICING_REORDERED)?.flash?.peak?.cacheRead, 0.04)
+check('乱序列：pro 高峰输出取第 2 列 27', parsePeakTable(PRICING_REORDERED)?.pro?.peak?.output, 27)
+
+// --- 价格时代：8/17 前统一价、8/17 起峰谷 v1、9/10 12:00 起 Flash 降价 v2 ---
+const B = (y, m, d, h, min = 0) => Date.UTC(y, m - 1, d, h - 8, min, 0) // 北京时间 -> epoch
+const pricingSvc = (proBilledAsFlash = true) => {
+  const s = Object.create(BalanceService.prototype)
+  s.model = 'auto'
+  s.proBilledAsFlash = proBilledAsFlash
+  s.pricingSnapshot = { fetchedAt: Date.now(), current: CURRENT_PRESETS, peak: PEAK_PRESETS_V2 }
+  s.ctx = { get: () => undefined }
+  s.sessionUsageCache = new WeakMap()
+  return s
+}
+const priced = pricingSvc()
+
+check('eraOf 8/16 -> standard', eraOf(B(2026, 8, 16, 10)), 'standard')
+check('eraOf 8/17 -> v1', eraOf(B(2026, 8, 17, 10)), 'v1')
+check('eraOf 9/10 11:59 -> v1', eraOf(B(2026, 9, 10, 11, 59)), 'v1')
+check('eraOf 9/10 12:00 -> v2', eraOf(B(2026, 9, 10, 12)), 'v2')
+
+check('8/16 统一价 输出 2', priced.pricesFor('flash', B(2026, 8, 16, 10)).output, 2)
+check('8/17 周一 10:00 -> v1 高峰', priced.pricesFor('flash', B(2026, 8, 17, 10)).band, 'peak')
+check('8/17 周一 10:00 输出 9', priced.pricesFor('flash', B(2026, 8, 17, 10)).output, 9)
+check('8/22 周六 10:00 -> v1 谷价', priced.pricesFor('flash', B(2026, 8, 22, 10)).band, 'off-peak')
+check('9/10 11:59 周四 -> 仍 v1 高峰输出 9', priced.pricesFor('flash', B(2026, 9, 10, 11, 59)).output, 9)
+check('9/10 12:01 周四 -> v2 谷价', priced.pricesFor('flash', B(2026, 9, 10, 12, 1)).band, 'off-peak-2')
+check('9/10 12:01 周四 输出 4', priced.pricesFor('flash', B(2026, 9, 10, 12, 1)).output, 4)
+check('9/10 15:00 周四 -> v2 高峰命中 0.04', priced.pricesFor('flash', B(2026, 9, 10, 15)).cacheRead, 0.04)
+check('9/10 15:00 周四 -> v2 高峰未命中 2', priced.pricesFor('flash', B(2026, 9, 10, 15)).input, 2)
+check('9/10 高峰价 = 谷价 2 倍', priced.pricesFor('flash', B(2026, 9, 10, 15)).output / priced.pricesFor('flash', B(2026, 9, 10, 12, 1)).output, 2)
+check('9/12 周六 15:00 -> v2 仍谷价（周末规则成立）', priced.pricesFor('flash', B(2026, 9, 12, 15)).band, 'off-peak-2')
+check('9/14 周一 15:00 -> v2 高峰', priced.pricesFor('flash', B(2026, 9, 14, 15)).band, 'peak-2')
+
+// --- Pro 路由口径开关（默认按 Flash 单价）---
+check('v2 时代 Pro 默认按 Flash 单价 输出 8', priced.pricesFor('pro', B(2026, 9, 10, 15)).output, 8)
+check('v2 时代 Pro 关闭开关后按自身价目 输出 27', pricingSvc(false).pricesFor('pro', B(2026, 9, 10, 15)).output, 27)
+check('v1 时代 Pro 不受开关影响 输出 27', priced.pricesFor('pro', B(2026, 9, 10, 11)).output, 27)
+
+// --- 历史分桶按 band 取价：v1/v2 不得串价 ---
+check('pricesForBand off-peak-2 flash 输出 4', priced.pricesForBand('flash', 'off-peak-2').output, 4)
+check('pricesForBand peak flash 仍 v1 输出 9', priced.pricesForBand('flash', 'peak').output, 9)
+check('pricesForBand standard flash 输出 2', priced.pricesForBand('flash', 'standard').output, 2)
+check('pricesForBand peak-2 pro 默认按 Flash 输出 8', priced.pricesForBand('pro', 'peak-2').output, 8)
+
+// --- 跨时代会话：v1 与 v2 用量分别按各自价目累计（v1 高峰 9 元 + v2 高峰 8 元）---
+const oneMillionOutput = { inputTokens: 0, outputTokens: 1000000, cacheReadTokens: 0, cacheWriteTokens: 0 }
+const crossSvc = pricingSvc()
+crossSvc.ctx = {
+  get: (name) => (name === 'sessionProjections'
+    ? { snapshot: () => ({ values: { tokenUsage: { uncachedInputTokens: 0, outputTokens: 1000000, cacheReadTokens: 0, cacheWriteTokens: 0 } } }) }
+    : undefined),
+}
+const crossSession = {
+  events: [
+    headerEvent('deepseek-v4-flash', 'deepseek-official'),
+    { type: 'assistant/message', time: B(2026, 9, 10, 11, 0), data: { usage: oneMillionOutput, turn: 1 } },
+    { type: 'assistant/message', time: B(2026, 9, 10, 15, 0), data: { usage: oneMillionOutput, turn: 2 } },
+  ],
+}
+check('跨时代会话按各自价目累计（9+8=17）', crossSvc.sessionCost(crossSession).cost, 17)
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURES`)
 process.exit(failures === 0 ? 0 : 1)

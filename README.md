@@ -19,10 +19,10 @@ A cute whale desktop pet for DeepSeek Harness that keeps an eye on your DeepSeek
 - 🏃 **状态动作**：有任务运行时鲸鱼娘忙碌抖动 + 「忙…」标签；点击她 squash 弹跳回应（纯 CSS，不动形象）
 - 💰 **余额监视**：DeepSeek 官方 `Get User Balance` 接口，30s 轮询 + 并发去重；请求失败保留上次快照并提示过期
 - ⚠️ **低余额/预算提醒**：余额低于阈值或今日花费超过预算时，面板警告 + 鲸鱼娘红点；浏览器有通知权限时低余额发送 Notification
-- ⚙️ **面板设置**：点面板右上角齿轮即可改 `model` / 低余额阈值 / 今日预算，保存到本地 JSON，无需手改 YAML
+- ⚙️ **面板设置**：点面板右上角齿轮即可改 `model` / 低余额阈值 / 今日预算 / 「Pro 按 Flash 单价计费」开关，保存到本地 JSON，无需手改 YAML
 - 🧮 **会话用量**：读 `sessionProjections` 的 `tokenUsage` 投影，按官方价格折算花费（输入未命中 / 缓存命中 / 输出三桶，分桶条形图按金额占比绘制、每桶标注 token 数、金额与金额占比，避免缓存命中 token 占大头却几乎不花钱的误导；DeepSeek 官方没有「缓存写入」计费类别，故不展示该桶）；`model: auto` 时按会话实际请求头识别 flash/pro，识别为非 DeepSeek 模型（如 GPT / Claude）的会话不估算花费；已落盘消息按各自发生时的峰谷档与模型计价，进行中增量按当前档计价；DSH「在新会话中新建分支」checkout 出的历史 seed 不会重复计费，只统计新建分支后的新增用量
 - 📊 **历史趋势（双 Tab 面板）**：「当前」Tab 看余额与实时花费；「历史」Tab 看近 7 天花费柱状图（有 `sessionPersistence` 时自动合并已保存会话）+ 本会话每条提问的花费明细（多步循环自动合并成一行，问题前 10 字 + Tokens + 花费）
-- ⚡ **峰谷定价**：北京 9:00-12:00 / 14:00-18:00 高峰价自动切换；面板显示当前档位与距下次切换倒计时；官方定价页每 6h 自动抓取；2026-08-17 前发生的消息按生效前标准价计入历史
+- ⚡ **峰谷定价**：按官方口径，北京**周一至周五** 9:00-12:00 / 14:00-18:00 为高峰价，其余时间（含周末全天）为谷价；**2026-09-10 12:00 起 Flash 系列降价自动生效**（谷价 0.02 / 1 / 4 元）；面板显示当前档位与距下次切换倒计时；官方定价页每 6h 自动抓取；历史消息按各自时刻的价格时代计价（8/17 前统一价 → 8/17 起峰谷 v1 → 9/10 12:00 起 v2）
 - 🌗 **主题适配**：面板颜色与柱状图深浅随 DSH 浅色/深色主题切换（`--dsw-alias-*` token）
 - 🖥️ **多屏适配**：外接大屏/笔记本切换时自动把桌宠夹回视口内，不会丢
 - 🛡️ **友好错误**：余额/定价请求超时显示「请求超时」而非英文 `This operation was aborted`
@@ -47,13 +47,14 @@ A cute whale desktop pet for DeepSeek Harness that keeps an eye on your DeepSeek
            refreshIntervalSeconds: 30
            lowBalanceThreshold: 20   # 余额低于 20 元时提醒（可不写，默认 10）
            dailyBudget: 5            # 今日花费超过 5 元时提醒（可不写，默认不提醒）
+           proBilledAsFlash: true    # V4.1 Flash 上线后 Pro 按 Flash 单价计费（默认开）
    ```
 
 3. 保存后刷新浏览器即可（`Cmd+Shift+R`）。
 
 余额接口需要能解析到 `DEEPSEEK_API_KEY`（凭据缝 → 启动环境 → `process.env`，逐层回退）。
 
-> 推荐在鲸鱼娘面板右上角点 **⚙ 设置** 修改 `model`、低余额阈值、今日预算；保存后写入 `~/.dsh/whale-purse.settings.json`，优先级高于下面 YAML 里的同名配置，无需重启。
+> 推荐在鲸鱼娘面板右上角点 **⚙ 设置** 修改 `model`、低余额阈值、今日预算、`proBilledAsFlash`；保存后写入 `~/.dsh/whale-purse.settings.json`，优先级高于下面 YAML 里的同名配置，无需重启。
 
 ## 配置
 
@@ -66,6 +67,7 @@ A cute whale desktop pet for DeepSeek Harness that keeps an eye on your DeepSeek
 | `pricingRefreshHours` | `6` | 官方定价页抓取间隔（小时） |
 | `lowBalanceThreshold` | `10` | 余额低于该值（CNY）时触发低余额提示 |
 | `dailyBudget` | 未设置 | 今日花费预算（CNY），超过后面板提示 |
+| `proBilledAsFlash` | `true` | 2026-09-10 12:00 起官方把 V4 Pro 请求路由到 V4.1 Flash 并按 Flash 单价计费；`false` 则按 Pro 自身价目估算 |
 | `enabled` | `true` | 是否启用余额查询 |
 
 ## 项目结构
@@ -89,6 +91,16 @@ whale-purse/
 `whale-sprite.webp` 由 PNG 源图生成：`cwebp -q 90 -alpha_q 100 -m 6 assets/whale-sprite.png -o assets/whale-sprite.webp`。改完素材后运行 `npm run embed` 重新内联。
 
 ## 更新日志
+
+### 2026-09-10
+
+- 更新：**Flash 系列降价**（官方 2026-09-09 公告，北京时间 2026-09-10 12:00 生效）—— 空闲时段缓存命中 0.05→**0.02**、未命中 1.5→**1**、输出 4.5→**4** 元/百万 tokens；高峰时段为谷价 2 倍（0.04 / 2 / 8）
+- 新增：**价格时代（era）记账** —— 2026-08-17 之前为统一价、8/17–9/10 12:00 为峰谷 v1、9/10 12:00 起为 v2；历史消息按各自 `event.time` 落到对应时代计价，调价不会把旧会话的账单一起改写
+- 新增：`proBilledAsFlash` 开关（默认开）—— 官方在 V4.1 Flash 上线后把 V4 Pro 请求路由到 V4.1 Flash 并按 Flash 单价计费；关掉则按 Pro 自身价目估算。面板 ⚙ 设置与 `cordis.patch.yml` 的 `config` 都可改
+- 修复：**官方定价页解析失效** —— 页面写的是 `百万tokens输入<br>（缓存命中）`，`stripHtml` 把 `<br>` 变成空格，而锚点正则写死无空格，导致 `priceSections` / `parsePeakTable` 恒返回 `undefined`、每 6h 的自动抓取形同虚设（内置预设一直在兜底）。现锚点容忍空白
+- 优化：价格表按**表头模型列**取值，不再写死第 0/1 列 —— 官方页新增模型列（vision / 未来的 v4.1）时不会串价
+- 修复：官方页仍是旧价目时不再**倒灌回退** —— 抓取到的 v1 旧表会被识别并忽略，继续使用内置 v2 新价（官方定价页是静态构建，调价当天往往还没重新发布）
+- 测试：冒烟测试新增价格时代边界、v2 价目、Pro 路由开关、跨时代会话累计与定价页解析回归用例
 
 ### 2026-08-28
 
