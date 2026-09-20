@@ -22,7 +22,7 @@ A cute whale desktop pet for DeepSeek Harness that keeps an eye on your DeepSeek
 - ⚙️ **面板设置**：点面板右上角齿轮即可改 `model` / 低余额阈值 / 今日预算 / 「Pro 按 Flash 单价计费」开关，保存到本地 JSON，无需手改 YAML
 - 🧮 **会话用量**：读 `sessionProjections` 的 `tokenUsage` 投影，按官方价格折算花费（输入未命中 / 缓存命中 / 输出三桶，分桶条形图按金额占比绘制、每桶标注 token 数、金额与金额占比，避免缓存命中 token 占大头却几乎不花钱的误导；DeepSeek 官方没有「缓存写入」计费类别，故不展示该桶）；`model: auto` 时按会话实际请求头识别 flash/pro，识别为非 DeepSeek 模型（如 GPT / Claude）的会话不估算花费；已落盘消息按各自发生时的峰谷档与模型计价，进行中增量按当前档计价；DSH「在新会话中新建分支」checkout 出的历史 seed 不会重复计费，只统计新建分支后的新增用量
 - 📊 **历史趋势（双 Tab 面板）**：「当前」Tab 看余额与实时花费；「历史」Tab 看近 7 天花费柱状图（有 `sessionPersistence` 时自动合并已保存会话）+ 本会话每条提问的花费明细（多步循环自动合并成一行，问题前 10 字 + Tokens + 花费）
-- ⚡ **峰谷定价**：按官方口径，北京**周一至周五且非中国法定节假日**的 9:00-12:00 / 14:00-18:00 为高峰价，**其余时间（含周末与中国法定节假日全天）为谷价**；节假日表（2026 年，取自国务院办公厅放假安排）内置在 `lib/index.js` 的 `CN_HOLIDAY_RANGES`，未收录的年份退化为「周一至周五」规则；**2026-09-10 12:00 起 Flash 系列降价自动生效**（谷价 0.02 / 1 / 4 元）；面板显示当前档位与距下次切换倒计时；官方定价页每 6h 自动抓取；历史消息按各自时刻的价格时代计价（8/17 前统一价 → 8/17 起峰谷 v1 → 9/10 12:00 起 v2）
+- ⚡ **峰谷定价**：按官方口径，北京**周一至周五且非中国法定节假日**的 9:00-12:00 / 14:00-18:00 为高峰价，**其余时间（含周末与中国法定节假日全天）为谷价**；节假日表内置在 `lib/index.js` 的 `CN_HOLIDAY_RANGES`（2026 年）作兜底，并**每 6h 从 [holiday-cn](https://github.com/NateScarlet/holiday-cn)（出处为国务院办公厅放假安排通知，逐年 JSON）自动抓取今年与前后一年的放假/调休数据**并入，落盘缓存 `~/.dsh/whale-purse.holidays.json`（离线/重启仍有效），抓取失败时保持原数据、绝不影响计价；未公布年份退化为「周一至周五」规则；**2026-09-10 12:00 起 Flash 系列降价自动生效**（谷价 0.02 / 1 / 4 元）；面板显示当前档位与距下次切换倒计时；官方定价页每 6h 自动抓取；历史消息按各自时刻的价格时代计价（8/17 前统一价 → 8/17 起峰谷 v1 → 9/10 12:00 起 v2）
 - 🌗 **主题适配**：面板颜色与柱状图深浅随 DSH 浅色/深色主题切换（`--dsw-alias-*` token）
 - 🖥️ **多屏适配**：外接大屏/笔记本切换时自动把桌宠夹回视口内，不会丢
 - 🛡️ **友好错误**：余额/定价请求超时显示「请求超时」而非英文 `This operation was aborted`
@@ -48,13 +48,14 @@ A cute whale desktop pet for DeepSeek Harness that keeps an eye on your DeepSeek
            lowBalanceThreshold: 20   # 余额低于 20 元时提醒（可不写，默认 10）
            dailyBudget: 5            # 今日花费超过 5 元时提醒（可不写，默认不提醒）
            proBilledAsFlash: true    # V4.1 Flash 上线后 Pro 按 Flash 单价计费（默认开）
+           makeupWorkdaysArePeak: false  # 官方调休上班的周末是否按工作日计高峰（默认否）
    ```
 
 3. 保存后刷新浏览器即可（`Cmd+Shift+R`）。
 
 余额接口需要能解析到 `DEEPSEEK_API_KEY`（凭据缝 → 启动环境 → `process.env`，逐层回退）。
 
-> 推荐在鲸鱼娘面板右上角点 **⚙ 设置** 修改 `model`、低余额阈值、今日预算、`proBilledAsFlash`；保存后写入 `~/.dsh/whale-purse.settings.json`，优先级高于下面 YAML 里的同名配置，无需重启。
+> 推荐在鲸鱼娘面板右上角点 **⚙ 设置** 修改 `model`、低余额阈值、今日预算、`proBilledAsFlash`、`makeupWorkdaysArePeak`；保存后写入 `~/.dsh/whale-purse.settings.json`，优先级高于下面 YAML 里的同名配置，无需重启。
 
 ## 配置
 
@@ -68,6 +69,7 @@ A cute whale desktop pet for DeepSeek Harness that keeps an eye on your DeepSeek
 | `lowBalanceThreshold` | `10` | 余额低于该值（CNY）时触发低余额提示 |
 | `dailyBudget` | 未设置 | 今日花费预算（CNY），超过后面板提示 |
 | `proBilledAsFlash` | `true` | 2026-09-10 12:00 起官方把 V4 Pro 请求路由到 V4.1 Flash 并按 Flash 单价计费；`false` 则按 Pro 自身价目估算 |
+| `makeupWorkdaysArePeak` | `false` | 官方调休上班的周末（如 2026-09-20、10-10）是否按工作日计高峰（9:00-12:00 / 14:00-18:00）。默认 `false`：按官网页脚注字面口径「周末全天均为空闲时段」 |
 | `enabled` | `true` | 是否启用余额查询 |
 
 ## 项目结构
@@ -91,6 +93,13 @@ whale-purse/
 `whale-sprite.webp` 由 PNG 源图生成：`cwebp -q 90 -alpha_q 100 -m 6 assets/whale-sprite.png -o assets/whale-sprite.webp`。改完素材后运行 `npm run embed` 重新内联。
 
 ## 更新日志
+
+### 2026-09-20（二）节假日数据自动更新
+
+- 新增：**中国法定节假日/调休数据每 6h 自动抓取** —— 数据源 [holiday-cn](https://github.com/NateScarlet/holiday-cn)（逐年 JSON，`papers` 字段给出国务院办公厅放假安排通知原文），jsdelivr 优先、`raw.githubusercontent` 备用，抓取「今年 ± 1 年」三份；国务院通常 11 月公布次年安排，公布后插件**无需改代码即可自动跟进**（内置 `CN_HOLIDAY_RANGES` 只作兜底，抓取失败或未公布年份退回原规则）
+- 新增：抓取结果落盘 `~/.dsh/whale-purse.holidays.json`，重启/离线时先读缓存再后台刷新；并入语义是**只增不减**（坏数据、空占位年份一律忽略），绝不因网络问题改变已生效的计价
+- 新增：`makeupWorkdaysArePeak` 开关（默认 `false`）—— 官方调休上班日全部落在周末（2026 年 6 天：01-04、02-14、02-28、05-09、09-20、10-10）。默认按官网页脚注字面口径「周末全天均为空闲时段」计；置 `true` 则把这些天当工作日，按 9:00-12:00 / 14:00-18:00 计高峰。面板 ⚙ 设置与 YAML 都可改
+- 测试：冒烟测试 141 条全通过（新增 26 条：年份 JSON 解析、数据源回退、空占位年份、坏数据、并入语义、缓存缺失、调休开关与切换点、开关透传到计价）
 
 ### 2026-09-20
 

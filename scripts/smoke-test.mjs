@@ -5,20 +5,24 @@ import vm from 'node:vm'
 const src = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   .replace(/^import .*$/gm, '')
   .replace(/^export /gm, '')
-  + '\n;globalThis.__wpTest = { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V1, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable, modelColumns, sessionEvents, liveSessions, CN_HOLIDAYS, CN_HOLIDAY_RANGES, beijingDateKey, isChinaHoliday, isPeakDay, isPeakHour, nextPeakBoundary }\n'
+  + '\n;globalThis.__wpTest = { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V1, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable, modelColumns, sessionEvents, liveSessions, CN_HOLIDAYS, CN_HOLIDAY_RANGES, beijingDateKey, isChinaHoliday, isPeakDay, isPeakHour, nextPeakBoundary, parseHolidayYear, fetchHolidays, holidayYearsAround, applyHolidayData, fetchedHolidays, fetchedMakeupDays }\n'
 
 const sandbox = {
   console, Date, Intl, URL, URLSearchParams, Map, Set, WeakMap,
   Number, String, Math, JSON, Promise, AbortController,
   setTimeout, clearTimeout, setInterval, clearInterval,
-  // 模块顶层常量用到的导入符号（方法内部用到的 fs 符号不会被本次测试触达）
+  // 模块顶层常量用到的导入符号（fs 符号在负载路径中会用到，这里给最小桩）
   join: (...args) => args.join('/'),
+  existsSync: () => false,
+  mkdirSync: () => {},
+  readFileSync: () => { throw new Error('no file') },
+  writeFileSync: () => {},
   homedir: () => '/home/test',
   process: { env: {} },
 }
 vm.createContext(sandbox)
 vm.runInContext(src, sandbox)
-const { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable, modelColumns, sessionEvents, liveSessions, CN_HOLIDAYS, beijingDateKey, isChinaHoliday, isPeakDay, isPeakHour, nextPeakBoundary } = sandbox.__wpTest
+const { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable, modelColumns, sessionEvents, liveSessions, CN_HOLIDAYS, beijingDateKey, isChinaHoliday, isPeakDay, isPeakHour, nextPeakBoundary, parseHolidayYear, fetchHolidays, holidayYearsAround, applyHolidayData, fetchedHolidays, fetchedMakeupDays } = sandbox.__wpTest
 
 let failures = 0
 function check(label, actual, expected) {
@@ -317,5 +321,56 @@ const holidaySession = {
   ],
 }
 check('国庆当天的消息按谷价累计（1M 输出 = 4 元）', holidaySvc.sessionCost(holidaySession).cost, 4)
+
+// --- 节假日数据自动更新（holiday-cn）：解析 / 抓取回退 / 并入 / 调休开关 ---
+const HOLIDAY_YEAR_2027 = {
+  year: 2027,
+  days: [
+    { name: '元旦', date: '2027-01-01', isOffDay: true },
+    { name: '元旦', date: '2027-01-02', isOffDay: true },
+    { name: '元旦', date: '2027-01-04', isOffDay: false },
+    { name: '坏数据', date: 12345, isOffDay: true },
+    null,
+  ],
+}
+const parsed2027 = parseHolidayYear(HOLIDAY_YEAR_2027)
+check('解析放假日期', parsed2027.holidays.join(','), '2027-01-01,2027-01-02')
+check('解析调休上班日期', parsed2027.makeup.join(','), '2027-01-04')
+check('坏数据被忽略', parseHolidayYear(null).holidays.length, 0)
+check('抓取年份 = 今年前后各一年', holidayYearsAround(B(2026, 9, 20, 10)).join(','), '2025,2026,2027')
+
+const okBody = { days: [{ date: '2027-01-01', isOffDay: true }, { date: '2027-01-04', isOffDay: false }] }
+const fallbackFetch = async (url) => (url.includes('jsdelivr') ? { ok: false, status: 500 } : { ok: true, json: async () => okBody })
+const fetchedYears = await fetchHolidays(['2027'], fallbackFetch)
+check('首个源失败时回退到备用源', fetchedYears['2027'].holidays.join(','), '2027-01-01')
+check('调休日一并抓取', fetchedYears['2027'].makeup.join(','), '2027-01-04')
+check('未公布年份（空 days）不计入', Object.keys(await fetchHolidays(['2027'], async () => ({ ok: true, json: async () => ({ days: [] }) }))).length, 0)
+check('全部源失败时返回空对象', Object.keys(await fetchHolidays(['2027'], async () => { throw new Error('offline') })).length, 0)
+check('无缓存文件时 loadHolidayCache 返回 undefined', Object.create(BalanceService.prototype).loadHolidayCache(), undefined)
+
+check('并入前 2027-01-01 不是节假日', isChinaHoliday(B(2027, 1, 1, 10)), false)
+check('applyHolidayData 返回新增放假天数', applyHolidayData(fetchedYears), 1)
+check('并入后 2027-01-01 判为节假日', isChinaHoliday(B(2027, 1, 1, 10)), true)
+check('并入不影响普通工作日（2027-01-05 周二）', isPeakDay(B(2027, 1, 5, 10)), true)
+check('调休日进入 fetchedMakeupDays', fetchedMakeupDays.has('2027-01-04'), true)
+const HOLIDAY_YEAR_2026 = { days: [{ date: '2026-01-01', isOffDay: true }, { date: '2026-09-20', isOffDay: false }, { date: '2026-10-10', isOffDay: false }] }
+check('内置已覆盖的日期不重复计入', applyHolidayData({ '2026': parseHolidayYear(HOLIDAY_YEAR_2026) }), 0)
+check('2026 调休上班日全部进入集合', [...fetchedMakeupDays].sort().join(','), '2026-09-20,2026-10-10,2027-01-04')
+
+// 2026-09-20 是周日、官方调休上班日 —— 默认按周末谷价，开关开则按工作日高峰
+check('默认：调休上班的周日 10:00 仍空闲', isPeakHour(new Date(B(2026, 9, 20, 10)), false), false)
+check('开关开：调休上班的周日 10:00 计高峰', isPeakHour(new Date(B(2026, 9, 20, 10)), true), true)
+check('开关开：调休日午休 13:00 仍空闲', isPeakHour(new Date(B(2026, 9, 20, 13)), true), false)
+check('开关开：调休日 15:00 计高峰', isPeakHour(new Date(B(2026, 9, 20, 15)), true), true)
+check('开关不影响真正的节假日（10/1 周四）', isPeakHour(new Date(B(2026, 10, 1, 10)), true), false)
+check('开关开：调休日 08:00 -> 当日 09:00', nextPeakBoundary(new Date(B(2026, 9, 20, 8)), true), B(2026, 9, 20, 9))
+check('默认：调休日 08:00 -> 次日工作日 09:00', nextPeakBoundary(new Date(B(2026, 9, 20, 8)), false), B(2026, 9, 21, 9))
+
+// 开关透传到计价
+const svcMakeup = pricingSvc()
+svcMakeup.makeupWorkdaysArePeak = true
+check('开关开：调休日用量按 v2 高峰价 输出 8', svcMakeup.pricesFor('flash', B(2026, 9, 20, 10)).output, 8)
+check('开关开：调休日 band = peak-2', svcMakeup.pricesFor('flash', B(2026, 9, 20, 10)).band, 'peak-2')
+check('默认：调休日用量仍按谷价 输出 4', priced.pricesFor('flash', B(2026, 9, 20, 10)).output, 4)
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURES`)
 process.exit(failures === 0 ? 0 : 1)
