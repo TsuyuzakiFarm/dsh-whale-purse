@@ -5,7 +5,7 @@ import vm from 'node:vm'
 const src = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   .replace(/^import .*$/gm, '')
   .replace(/^export /gm, '')
-  + '\n;globalThis.__wpTest = { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V1, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable, sessionEvents, liveSessions }\n'
+  + '\n;globalThis.__wpTest = { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V1, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable, modelColumns, sessionEvents, liveSessions, CN_HOLIDAYS, CN_HOLIDAY_RANGES, beijingDateKey, isChinaHoliday, isPeakDay, isPeakHour, nextPeakBoundary }\n'
 
 const sandbox = {
   console, Date, Intl, URL, URLSearchParams, Map, Set, WeakMap,
@@ -18,7 +18,7 @@ const sandbox = {
 }
 vm.createContext(sandbox)
 vm.runInContext(src, sandbox)
-const { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable, sessionEvents, liveSessions } = sandbox.__wpTest
+const { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable, modelColumns, sessionEvents, liveSessions, CN_HOLIDAYS, beijingDateKey, isChinaHoliday, isPeakDay, isPeakHour, nextPeakBoundary } = sandbox.__wpTest
 
 let failures = 0
 function check(label, actual, expected) {
@@ -259,5 +259,63 @@ check('新版 list 快照 store 可枚举', liveSessions(storeSessions).map((s) 
 check('旧版 list() 函数仍可用', liveSessions({ list: () => [{ id: 'x' }] }).length, 1)
 check('无 sessions 时返回空数组', liveSessions(undefined).length, 0)
 
+
+// --- 官方定价页 2026-09 改版：档位列名由 deepseek-v4-flash 换成 deepseek-flash ---
+const PRICING_LIVE_202609 = `<table><tr><td>模型</td><td>deepseek-flash</td><td>deepseek-v4-pro</td></tr>
+<tr><td>价格<sup>(2)</sup></td><td>百万tokens输入<br>（缓存命中）</td><td>空闲时段 0.02元 0.15元 高峰时段 0.04元 0.30元</td></tr>
+<tr><td>百万tokens输入<br>（缓存未命中）</td><td>空闲时段 1元 4.5元 高峰时段 2元 9.0元</td></tr>
+<tr><td>百万tokens输出</td><td>空闲时段 4元 13.5元 高峰时段 8元 27.0元</td></tr>
+<tr><td>并发限制</td><td>2500</td><td>500</td></tr></table>`
+check('新表头 deepseek-flash -> flash 第 0 列', JSON.stringify(modelColumns(PRICING_LIVE_202609)), '{"flash":0,"pro":1}')
+check('新表头解析 flash 空闲命中 0.02', parsePeakTable(PRICING_LIVE_202609)?.flash?.offPeak?.cacheRead, 0.02)
+check('新表头解析 flash 高峰输出 8', parsePeakTable(PRICING_LIVE_202609)?.flash?.peak?.output, 8)
+check('新表头解析 pro 高峰输出 27', parsePeakTable(PRICING_LIVE_202609)?.pro?.peak?.output, 27)
+// 官方页把脚注号紧跟在档位名后（deepseek-flash(1)），不能让列定位失效。
+const PRICING_LIVE_FOOTNOTED = PRICING_LIVE_202609.replace('<td>deepseek-flash</td>', '<td>deepseek-flash<sup>(1)</sup></td>')
+check('表头带脚注 (1) 仍定位 flash 第 0 列', JSON.stringify(modelColumns(PRICING_LIVE_FOOTNOTED)), '{"flash":0,"pro":1}')
+check('旧表头 deepseek-v4-flash 仍定位第 0 列', JSON.stringify(modelColumns(PRICING_FIXTURE)), '{"flash":0,"pro":1}')
+check('乱序表头按名字取列', JSON.stringify(modelColumns(PRICING_REORDERED)), '{"flash":1,"pro":2}')
+
+// --- 中国法定节假日 + 周末：官方脚注「其余时段…全天均为空闲时段」 ---
+check('2026 年法定节假日共 33 天', CN_HOLIDAYS.size, 33)
+check('beijingDateKey 按北京日期（10/1 00:30 北京）', beijingDateKey(B(2026, 10, 1, 0, 30)), '2026-10-01')
+check('10/1 国庆（周四）10:00 -> 空闲', isPeakHour(new Date(B(2026, 10, 1, 10))), false)
+check('9/30（周三）10:00 -> 高峰', isPeakHour(new Date(B(2026, 9, 30, 10))), true)
+check('9/25 中秋（周五）10:00 -> 空闲', isPeakHour(new Date(B(2026, 9, 25, 10))), false)
+check('9/24（周四）10:00 -> 高峰', isPeakHour(new Date(B(2026, 9, 24, 10))), true)
+check('2/17 春节（周二）15:00 -> 空闲', isPeakHour(new Date(B(2026, 2, 17, 15))), false)
+check('5/6（周三）10:00 -> 高峰（劳动节后）', isPeakHour(new Date(B(2026, 5, 6, 10))), true)
+check('9/20 调休上班（周日）-> 仍按周末空闲', isPeakDay(B(2026, 9, 20, 10)), false)
+check('10/10 调休上班（周六）-> 仍按周末空闲', isPeakDay(B(2026, 10, 10, 10)), false)
+check('未收录年份退化为周一至周五（2027-01-04 周一）', isPeakDay(B(2027, 1, 4, 10)), true)
+check('未收录年份元旦不误判为节假日（2027-01-01）', isChinaHoliday(B(2027, 1, 1, 10)), false)
+
+// 价格层：节假日按谷价，节前同日同时刻仍是高峰
+check('国庆当天 band = off-peak-2', priced.pricesFor('flash', B(2026, 10, 1, 10)).band, 'off-peak-2')
+check('国庆当天 v2 谷价 输出 4', priced.pricesFor('flash', B(2026, 10, 1, 10)).output, 4)
+check('节前同日同时刻仍高峰 输出 8', priced.pricesFor('flash', B(2026, 9, 30, 10)).output, 8)
+check('中秋当天 v2 谷价 命中 0.02', priced.pricesFor('flash', B(2026, 9, 25, 10)).cacheRead, 0.02)
+
+// 切换点跨节假日整段跳过
+check('9/30 19:00 -> 跳过整个国庆到 10/8 09:00', nextPeakBoundary(new Date(B(2026, 9, 30, 19))), B(2026, 10, 8, 9))
+check('9/24 19:00 -> 跳过中秋+周末到 9/28 09:00', nextPeakBoundary(new Date(B(2026, 9, 24, 19))), B(2026, 9, 28, 9))
+check('9/30 10:00（高峰中）-> 12:00', nextPeakBoundary(new Date(B(2026, 9, 30, 10))), B(2026, 9, 30, 12))
+check('9/30 15:00 -> 18:00', nextPeakBoundary(new Date(B(2026, 9, 30, 15))), B(2026, 9, 30, 18))
+check('10/1 08:00（节假日）-> 10/8 09:00', nextPeakBoundary(new Date(B(2026, 10, 1, 8))), B(2026, 10, 8, 9))
+
+// 会话级：节假日发生的用量按谷价累计（1M 输出 = 4 元）
+const holidaySvc = pricingSvc()
+holidaySvc.ctx = {
+  get: (name) => (name === 'sessionProjections'
+    ? { snapshot: () => ({ values: { tokenUsage: { uncachedInputTokens: 0, outputTokens: 1000000, cacheReadTokens: 0, cacheWriteTokens: 0 } } }) }
+    : undefined),
+}
+const holidaySession = {
+  events: [
+    headerEvent('deepseek-v4-flash', 'deepseek-official'),
+    { type: 'assistant/message', time: B(2026, 10, 1, 10), data: { usage: oneMillionOutput, turn: 1 } },
+  ],
+}
+check('国庆当天的消息按谷价累计（1M 输出 = 4 元）', holidaySvc.sessionCost(holidaySession).cost, 4)
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURES`)
 process.exit(failures === 0 ? 0 : 1)
