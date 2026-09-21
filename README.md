@@ -6,7 +6,7 @@
 
 一只可拖拽的二次元鲸鱼娘，浮在 DSH Web GUI 上；点她弹出「当前 / 历史」双 Tab 用量面板。余额 30s、当前会话花费 3s 自动刷新，拖过的位置自动记住。
 
-| | |
+| 项目 | 说明 |
 | --- | --- |
 | 形态 | DSH 组合包（`dsh.bundle`）+ Web 客户端 bundle；纯 ES，无构建步骤 |
 | 需要 | DSH `>= 0.1.5-rc.2`；可解析 `DEEPSEEK_API_KEY` 的凭据缝（缺失时只影响余额，不影响花费统计） |
@@ -20,7 +20,6 @@ A cute whale desktop pet for DeepSeek Harness: she watches your DeepSeek balance
 ## 特性
 
 **桌宠**
-
 - 🐋 透明立绘悬浮、随波轻微摇摆、脚底投影；可拖拽换位（`localStorage` 记忆）
 - 🔔 后台会话跑完时弹跳 + 冒泡「任务完成啦」，点气泡直达该会话
 - 🏃 有任务运行时忙碌抖动 + 「忙…」标签，点击 squash 弹跳回应（纯 CSS，不动形象）
@@ -28,19 +27,16 @@ A cute whale desktop pet for DeepSeek Harness: she watches your DeepSeek balance
 - 🧩 兼容 [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) 的浮层层级，拖进面板区域也不被遮挡
 
 **用量与花费**
-
 - 💰 **余额**：官方 `Get User Balance`，30s 轮询 + 并发去重；请求失败保留上次快照并提示「显示的是过期数据」
 - 🧮 **花费**：读 `sessionProjections` 的 `tokenUsage` 投影，按官方价格折算。三桶（输入未命中 / 缓存命中 / 输出）条形图按**金额占比**绘制，避免「缓存命中 token 占大头、却几乎不花钱」的误导
 - 📊 **双 Tab 面板**：「当前」看余额与实时花费；「历史」看近 7 天柱状图（有 `sessionPersistence` 时自动合并已保存会话）+ 本会话每条提问的花费明细（多步循环自动合并成一行）
 - 🛡️ 余额/定价请求超时显示「请求超时」，不把英文 `This operation was aborted` 丢给用户
 
 **提醒与设置**
-
 - ⚠️ 余额低于阈值 / 今日花费超预算 → 面板警告 + 鲸鱼娘红点；浏览器有通知权限时低余额发送 Notification
 - ⚙️ 面板右上角齿轮即可改计价模型、低余额阈值、今日预算等，写入本地 JSON，无需手改 YAML
 
 **计价**（口径细节见[计价口径](#计价口径)）
-
 - ⚡ **峰谷定价**：北京时间工作日 9:00-12:00 / 14:00-18:00 为高峰价，其余时段（含周末与法定节假日全天）为谷价
 - 🗓️ **节假日自动跟进**：中国法定节假日/调休数据每 6h 自动抓取并落盘缓存，无需改代码跟次年安排，「调休上班日算不算高峰」有开关
 - 🕰️ **价格时代记账**：历史消息按各自发生时刻的价格时代计价，官方调价不会改写旧账单
