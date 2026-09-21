@@ -2,14 +2,18 @@
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 
-const src = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+/** 读源码并抹掉 import/export 语法，让 config.js 与 index.js 在同一 vm 作用域里跑。 */
+const load = (name) => readFileSync(new URL(`../lib/${name}`, import.meta.url), 'utf8')
   .replace(/^import .*$/gm, '')
   .replace(/^export /gm, '')
-  + '\n;globalThis.__wpTest = { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V1, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable, modelColumns, sessionEvents, liveSessions, CN_HOLIDAYS, CN_HOLIDAY_RANGES, beijingDateKey, isChinaHoliday, isPeakDay, isPeakHour, nextPeakBoundary, parseHolidayYear, fetchHolidays, holidayYearsAround, applyHolidayData, fetchedHolidays, fetchedMakeupDays }\n'
+
+const src = `${load('config.js')}\n${load('index.js')}`
+  + '\n;globalThis.__wpTest = { Config, defaultConfig, DEFAULT_HOLIDAY_DATA_URLS, normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V1, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable, modelColumns, sessionEvents, liveSessions, CN_HOLIDAYS, CN_HOLIDAY_RANGES, beijingDateKey, isChinaHoliday, isPeakDay, isPeakHour, nextPeakBoundary, parseHolidayYear, fetchHolidays, holidayYearsAround, applyHolidayData, fetchedHolidays, fetchedMakeupDays }\n'
 
 const sandbox = {
   console, Date, Intl, URL, URLSearchParams, Map, Set, WeakMap,
-  Number, String, Math, JSON, Promise, AbortController,
+  Number, String, Math, JSON, Promise, AbortController, Response,
+  setTimeout, clearTimeout, setInterval, clearInterval,
   setTimeout, clearTimeout, setInterval, clearInterval,
   // 模块顶层常量用到的导入符号（fs 符号在负载路径中会用到，这里给最小桩）
   join: (...args) => args.join('/'),
@@ -22,7 +26,7 @@ const sandbox = {
 }
 vm.createContext(sandbox)
 vm.runInContext(src, sandbox)
-const { normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable, modelColumns, sessionEvents, liveSessions, CN_HOLIDAYS, beijingDateKey, isChinaHoliday, isPeakDay, isPeakHour, nextPeakBoundary, parseHolidayYear, fetchHolidays, holidayYearsAround, applyHolidayData, fetchedHolidays, fetchedMakeupDays } = sandbox.__wpTest
+const { Config, defaultConfig, DEFAULT_HOLIDAY_DATA_URLS, normalizeModel, isDeepSeekModel, BalanceService, CURRENT_PRESETS, PEAK_PRESETS, PEAK_PRESETS_V2, eraOf, priceSections, parseCurrentTable, parsePeakTable, modelColumns, sessionEvents, liveSessions, CN_HOLIDAYS, beijingDateKey, isChinaHoliday, isPeakDay, isPeakHour, nextPeakBoundary, parseHolidayYear, fetchHolidays, holidayYearsAround, applyHolidayData, fetchedHolidays, fetchedMakeupDays } = sandbox.__wpTest
 
 let failures = 0
 function check(label, actual, expected) {
@@ -52,6 +56,8 @@ check('isDeepSeekModel empty model + official provider -> true', isDeepSeekModel
 
 // --- service-level behavior (avoid constructor network call) ---
 const svc = Object.create(BalanceService.prototype)
+svc.config = defaultConfig()
+svc.seams = {}
 svc.model = 'auto'
 svc.pricingSnapshot = { fetchedAt: Date.now(), current: CURRENT_PRESETS, peak: PEAK_PRESETS }
 svc.ctx = { get: () => undefined }
@@ -63,6 +69,8 @@ check('modelOf undefined -> flash fallback', svc.modelOf(undefined), 'flash')
 check('modelOf gpt-4o provider openai -> other', svc.modelOf('gpt-4o', 'openai'), 'other')
 
 const explicit = Object.create(BalanceService.prototype)
+explicit.config = defaultConfig()
+explicit.seams = {}
 explicit.model = 'pro'
 check('explicit pro forces tier', explicit.modelOf('gpt-4o'), 'pro')
 
@@ -109,11 +117,14 @@ const assistantEventWithSeq = (seq, turn, tokens = {}) => ({
   data: { usage: { inputTokens: 100000, outputTokens: 50000, cacheReadTokens: 0, cacheWriteTokens: 0, ...tokens }, turn },
 })
 const registryOf = (tokenUsage) => ({ get: () => ({ snapshot: () => ({ values: { tokenUsage } }) }) })
-const makeBranchSvc = (ctx) => {
+const makeBranchSvc = (projections) => {
   const s = Object.create(BalanceService.prototype)
+  s.config = defaultConfig()
+  // sessionProjections 现在是 ctx.inject 绑定的"缝"，测试直接注入。
+  s.seams = { sessionProjections: projections }
   s.model = 'auto'
   s.pricingSnapshot = svc.pricingSnapshot
-  s.ctx = ctx
+  s.ctx = { get: () => undefined }
   s.sessionUsageCache = new WeakMap()
   return s
 }
@@ -181,6 +192,8 @@ check('乱序列：pro 高峰输出取第 2 列 27', parsePeakTable(PRICING_REOR
 const B = (y, m, d, h, min = 0) => Date.UTC(y, m - 1, d, h - 8, min, 0) // 北京时间 -> epoch
 const pricingSvc = (proBilledAsFlash = true) => {
   const s = Object.create(BalanceService.prototype)
+  s.config = defaultConfig()
+  s.seams = {}
   s.model = 'auto'
   s.proBilledAsFlash = proBilledAsFlash
   s.pricingSnapshot = { fetchedAt: Date.now(), current: CURRENT_PRESETS, peak: PEAK_PRESETS_V2 }
@@ -341,12 +354,20 @@ check('抓取年份 = 今年前后各一年', holidayYearsAround(B(2026, 9, 20, 
 
 const okBody = { days: [{ date: '2027-01-01', isOffDay: true }, { date: '2027-01-04', isOffDay: false }] }
 const fallbackFetch = async (url) => (url.includes('jsdelivr') ? { ok: false, status: 500 } : { ok: true, json: async () => okBody })
-const fetchedYears = await fetchHolidays(['2027'], fallbackFetch)
+const holidayFetch = (impl) => fetchHolidays(['2027'], { urls: DEFAULT_HOLIDAY_DATA_URLS, fetchImpl: impl })
+const fetchedYears = await holidayFetch(fallbackFetch)
 check('首个源失败时回退到备用源', fetchedYears['2027'].holidays.join(','), '2027-01-01')
 check('调休日一并抓取', fetchedYears['2027'].makeup.join(','), '2027-01-04')
-check('未公布年份（空 days）不计入', Object.keys(await fetchHolidays(['2027'], async () => ({ ok: true, json: async () => ({ days: [] }) }))).length, 0)
-check('全部源失败时返回空对象', Object.keys(await fetchHolidays(['2027'], async () => { throw new Error('offline') })).length, 0)
-check('无缓存文件时 loadHolidayCache 返回 undefined', Object.create(BalanceService.prototype).loadHolidayCache(), undefined)
+check('未公布年份（空 days）不计入', Object.keys(await holidayFetch(async () => ({ ok: true, json: async () => ({ days: [] }) }))).length, 0)
+check('全部源失败时返回空对象', Object.keys(await holidayFetch(async () => { throw new Error('offline') })).length, 0)
+check('生命周期已中止时不再发请求', Object.keys(await fetchHolidays(['2027'], {
+  urls: DEFAULT_HOLIDAY_DATA_URLS,
+  fetchImpl: async () => { throw new Error('should not fetch') },
+  signal: AbortSignal.abort(),
+})).length, 0)
+const noCacheSvc = Object.create(BalanceService.prototype)
+noCacheSvc.config = defaultConfig()
+check('无缓存文件时 loadHolidayCache 返回 undefined', noCacheSvc.loadHolidayCache(), undefined)
 
 check('并入前 2027-01-01 不是节假日', isChinaHoliday(B(2027, 1, 1, 10)), false)
 check('applyHolidayData 返回新增放假天数', applyHolidayData(fetchedYears), 1)
@@ -372,5 +393,22 @@ svcMakeup.makeupWorkdaysArePeak = true
 check('开关开：调休日用量按 v2 高峰价 输出 8', svcMakeup.pricesFor('flash', B(2026, 9, 20, 10)).output, 8)
 check('开关开：调休日 band = peak-2', svcMakeup.pricesFor('flash', B(2026, 9, 20, 10)).band, 'peak-2')
 check('默认：调休日用量仍按谷价 输出 4', priced.pricesFor('flash', B(2026, 9, 20, 10)).output, 4)
+// --- Config schema：加载期校验 + 补默认值（Standard Schema v1，cordis 同步调用） ---
+const validate = (raw) => Config['~standard'].validate(raw)
+const defaults = validate({}).value
+check('空配置落默认 refreshIntervalSeconds', defaults.refreshIntervalSeconds, 30)
+check('空配置落默认 pricingRefreshHours', defaults.pricingRefreshHours, 6)
+check('可选的 dailyBudget 缺失时保持未设置', defaults.dailyBudget, undefined)
+check('未声明字段按 Schemastery 语义剔除', 'nope' in validate({ nope: 1 }).value, false)
+check('非法 refreshIntervalSeconds 报错并带字段路径', validate({ refreshIntervalSeconds: 'abc' }).issues[0].path[0], 'refreshIntervalSeconds')
+check('非法 refreshIntervalSeconds 不再静默变成 1ms 热循环', validate({ refreshIntervalSeconds: 0 }).issues.length, 1)
+check('非法 baseUrl 协议报错', validate({ baseUrl: 'ftp://example.com' }).issues.length, 1)
+check('非法 model 枚举报错', validate({ model: 'turbo' }).issues[0].message.includes('auto | pro | flash'), true)
+check('数字字符串被接受并归一', validate({ lowBalanceThreshold: '20' }).value.lowBalanceThreshold, 20)
+check('holidayDataUrls 必须是非空字符串数组', validate({ holidayDataUrls: [] }).issues.length, 1)
+check('非对象配置报错', validate('nope').issues.length, 1)
+check('validate 是同步的（cordis 不支持异步校验）', typeof validate({}).then, 'undefined')
+check('多个字段同时出错时全部报出', validate({ model: 'turbo', pricingRefreshHours: 0 }).issues.length, 2)
+
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURES`)
 process.exit(failures === 0 ? 0 : 1)

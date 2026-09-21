@@ -1,7 +1,7 @@
 {
   "name": "whale-purse",
-  "description": "鲸鱼娘桌宠 · DeepSeek 余额 + 会话用量/花费监视，直接挂进 DSH Web profile 的组合层（cordis.patch.yml insert，热重载）",
-  "version": "1.0.0",
+  "description": "鲸鱼娘桌宠 · DeepSeek 余额 + 会话用量/花费监视（DSH 组合包：cordis.patch.yml 层 + Web 客户端 bundle）",
+  "version": "0.2.0",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -11,19 +11,37 @@
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "scripts",
+    "assets/whale-sprite.webp",
+    "README.md",
+    "LICENSE"
+  ],
   "dsh": {
+    "engines": {
+      "dsh": ">=0.1.5-rc.2"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-connection",
-        "@deepseek-ai/dsh-client-ui-settings",
-        "@deepseek-ai/dsh-client-ui-slots",
-        "@deepseek-ai/dsh-client-ui-conversation"
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-api-session-controller"
       ]
     }
   },
+  "peerDependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
   "scripts": {
+    "test": "node scripts/smoke-test.mjs && node scripts/plugin-test.mjs",
     "embed": "node scripts/embed-asset.mjs",
     "screenshot": "node scripts/screenshot.mjs"
   },

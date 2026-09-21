@@ -30,54 +30,67 @@ A cute whale desktop pet for DeepSeek Harness that keeps an eye on your DeepSeek
 
 ## 安装
 
-1. 把本仓库软链进你的 DSH web profile 依赖：
+本包是标准 DSH **组合包**（`package.json` 声明 `dsh.bundle`），用插件管理器安装即可：
 
-   ```bash
-   ln -s /path/to/whale-purse ~/.dsh/profiles/web/node_modules/whale-purse
-   ```
+```bash
+dsh plugin --profile web add /path/to/whale-purse
+dsh --profile web --dump-config | grep -A3 whale-purse   # 确认层已生效
+```
 
-2. 在 `~/.dsh/profiles/web/cordis.patch.yml` 里加一条 insert：
+安装后插件行来自包内的 `cordis.patch.yml` 层。**如果之前按旧方式手写过 insert 行，请先删掉它**：同一个 id 在组合期会冲突。只想临时试用也可以继续用旧写法：
 
-   ```yaml
-   - insert:
-       - id: whale-purse
-         name: 'whale-purse'
-         config:
-           model: auto           # auto | pro | flash
-           refreshIntervalSeconds: 30
-           lowBalanceThreshold: 20   # 余额低于 20 元时提醒（可不写，默认 10）
-           dailyBudget: 5            # 今日花费超过 5 元时提醒（可不写，默认不提醒）
-           proBilledAsFlash: true    # V4.1 Flash 上线后 Pro 按 Flash 单价计费（默认开）
-           makeupWorkdaysArePeak: false  # 官方调休上班的周末是否按工作日计高峰（默认否）
-   ```
+```yaml
+# ~/.dsh/profiles/web/cordis.patch.yml
+- insert:
+    - id: whale-purse
+      name: 'whale-purse'
+      config:
+        model: auto          # auto | pro | flash
+        dailyBudget: 5       # 今日花费超过 5 元时提醒（不写则不提醒）
+```
 
-3. 保存后刷新浏览器即可（`Cmd+Shift+R`）。
+配置保存后热重载；浏览器端记得硬刷新（`Cmd+Shift+R`）。余额接口需要能解析到 `DEEPSEEK_API_KEY`（凭据缝 → 启动环境 → `process.env`，逐层回退）。
 
-余额接口需要能解析到 `DEEPSEEK_API_KEY`（凭据缝 → 启动环境 → `process.env`，逐层回退）。
+> 推荐在鲸鱼娘面板右上角点 **⚙ 设置** 修改 `model`、低余额阈值、今日预算、`proBilledAsFlash`、`makeupWorkdaysArePeak`；保存后写入 `statePath`（默认 `~/.dsh/whale-purse.settings.json`），优先级高于 YAML 里的同名配置，无需重启。
 
-> 推荐在鲸鱼娘面板右上角点 **⚙ 设置** 修改 `model`、低余额阈值、今日预算、`proBilledAsFlash`、`makeupWorkdaysArePeak`；保存后写入 `~/.dsh/whale-purse.settings.json`，优先级高于下面 YAML 里的同名配置，无需重启。
+### 安全说明
+
+HTTP 接口注册在 DSH `connection` 服务的 exact Fetch 路由表上（`/api` 通道），因此**与内置 `/api` 通道共用浏览器认证与 Host/Origin 检查**：未认证请求返回 401，跨站 / DNS rebinding 请求被拒。不要把这几条路由改回 `ctx.webServer.register()`——那是裸路由，会绕过围栏（0.2.0 之前的版本就是这么写的）。
 
 ## 配置
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
+配置在**加载期**由 `lib/config.js` 的 schema 校验：类型/范围不合法会让插件加载失败并指出字段名（不再静默退化成奇怪行为，例如把刷新间隔变成 1ms 热循环），未声明字段按 Schemastery 语义剔除，缺失字段落默认值。
+
+| 字段 | 默认 | 说明 |
+| --- | --- | --- |
 | `model` | `auto` | 计价模型：`auto`（按会话实际请求头识别；非 DeepSeek 模型不估算花费）/ `pro` / `flash` |
-| `refreshIntervalSeconds` | `30` | 余额轮询间隔（秒） |
+| `enabled` | `true` | 是否启用余额查询与后台刷新 |
+| `refreshIntervalSeconds` | `30` | 余额结果缓存间隔（秒），5–86400 |
+| `pricingRefreshHours` | `6` | 官方定价页 + 节假日数据抓取间隔（小时），0.25–720 |
+| `pricingUrl` | 官方定价页 | 价格自动抓取的来源页 |
+| `holidayDataUrls` | holiday-cn（jsdelivr 优先、raw 备用） | 节假日数据源模板数组，`{year}` 为年份占位 |
+| `requestTimeoutMs` | `15000` | 单次外部请求超时（毫秒），1000–120000 |
 | `apiKeyEnv` | `DEEPSEEK_API_KEY` | API key 的环境变量名 |
-| `baseUrl` | `https://api.deepseek.com` | 余额接口 base URL |
-| `pricingRefreshHours` | `6` | 官方定价页抓取间隔（小时） |
+| `baseUrl` | `https://api.deepseek.com` | 余额接口 base URL（http/https） |
 | `lowBalanceThreshold` | `10` | 余额低于该值（CNY）时触发低余额提示 |
 | `dailyBudget` | 未设置 | 今日花费预算（CNY），超过后面板提示 |
 | `proBilledAsFlash` | `true` | 2026-09-10 12:00 起官方把 V4 Pro 请求路由到 V4.1 Flash 并按 Flash 单价计费；`false` 则按 Pro 自身价目估算 |
 | `makeupWorkdaysArePeak` | `false` | 官方调休上班的周末（如 2026-09-20、10-10）是否按工作日计高峰（9:00-12:00 / 14:00-18:00）。默认 `false`：按官网页脚注字面口径「周末全天均为空闲时段」 |
-| `enabled` | `true` | 是否启用余额查询 |
+| `statePath` | `~/.dsh/whale-purse.settings.json` | 面板设置的落盘路径 |
+| `holidayCachePath` | `~/.dsh/whale-purse.holidays.json` | 节假日缓存的落盘路径 |
+
+> 客户端轮询节奏（余额 30s、当前会话花费 3s）跟随浏览器渲染，属于客户端常量，不走配置。
 
 ## 项目结构
 
 ```
 whale-purse/
+├── cordis.patch.yml    # 组合包层：profile 列出本包时插入插件行（dsh.bundle.patch）
 ├── lib/
-│   ├── index.js        # host 端：余额服务 + HTTP 路由（/api/whale-purse/balance、/api/whale-purse/balance/daily、/api/whale-purse/balance/messages、/api/whale-purse/settings）
+│   ├── config.js       # 配置契约：Standard Schema v1 校验 + 默认值（零依赖实现）
+│   ├── index.js        # host 端：余额服务 + exact Fetch 路由（/api/whale-purse/balance、…/daily、…/messages、…/settings）
 │   └── client.js       # 浏览器端：鲸鱼娘桌宠 + 双 Tab 面板（WebP 立绘 base64 内联）
 ├── assets/
 │   ├── whale-sprite.webp       # 内联立绘（280×373，透明，约 41KB）
@@ -87,12 +100,25 @@ whale-purse/
 └── scripts/
     ├── embed-asset.mjs         # 把 whale-sprite.webp/png 重新内联进 lib/client.js
     ├── screenshot.mjs          # Playwright 截图脚本
-    └── smoke-test.mjs          # 模型识别/计价逻辑冒烟测试（node scripts/smoke-test.mjs）
+    ├── smoke-test.mjs          # 模型识别 / 计价 / 配置 schema 冒烟测试
+    └── plugin-test.mjs         # 插件契约测试：假 cordis 上下文驱动真实模块（路由围栏 / 可选缝 / 卸载收敛）
 ```
+
+跑测试：`npm test`（= `node scripts/smoke-test.mjs && node scripts/plugin-test.mjs`）。
 
 `whale-sprite.webp` 由 PNG 源图生成：`cwebp -q 90 -alpha_q 100 -m 6 assets/whale-sprite.png -o assets/whale-sprite.webp`。改完素材后运行 `npm run embed` 重新内联。
 
 ## 更新日志
+
+### 0.2.0 —— 规范对齐（2026-09-21）
+
+- **安全**：HTTP 路由从 `ctx.webServer` 裸路由改挂 `connection` 的 exact Fetch 路由表，回到 DSH 的浏览器认证 + Host/Origin 围栏之内（此前 `/api/whale-purse/*` 未认证即可读写，实测 `GET /api/whale-purse/settings` 返回 200）；同步移除 `webServer` 依赖，`inject` 改为 `['connection', 'sessions']`
+- **配置契约**：新增 `lib/config.js`（Standard Schema v1），全部可调参数集中校验并补默认值——非法值在加载期报错（此前 `refreshIntervalSeconds: abc` 会算出 `NaN`，Node 把 `setInterval(fn, NaN)` 当 1ms，直接变成热循环）；新增可配置项 `pricingUrl`、`holidayDataUrls`、`requestTimeoutMs`、`statePath`、`holidayCachePath`
+- **生命周期**：构造函数不再产生副作用，后台刷新改由 `ctx.effect` 启停；所有外部请求带 `AbortController`，`dispose()` 停表 → 中止在途 → `await` 收敛（卸载后不再留下仍在写盘的孤儿请求）
+- **依赖声明**：`credentials` / `launchEnvironment` / `sessionProjections` / `sessionPersistence` 四个可选缝改用 `ctx.inject` 绑定与自动解绑，去掉运行时的 `ctx.get()` 探测
+- **打包**：补 `dsh.bundle`（`cordis.patch.yml` 层）、`dsh.engines`、`files`、`peerDependencies` 与 `npm test`；修正 `dsh.client.inject` 里两个并不存在的包名
+- **清理**：移除客户端早已失效的 `/api/balance` legacy 回退；调试钩子 `window.__whalePurseNotify` 改为仅在 `?whale-debug` 下挂载
+- **测试**：新增 `scripts/plugin-test.mjs`（假 cordis 上下文驱动真实模块：路由围栏、可选缝绑定/解绑、卸载收敛），smoke test 增加配置 schema 用例
 
 ### 2026-09-20（二）节假日数据自动更新
 

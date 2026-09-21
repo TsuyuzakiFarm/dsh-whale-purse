@@ -1,0 +1,9 @@
+# whale-purse 组合包层（dsh.bundle.patch）。
+# 当某个 profile 的 dsh.profile.bundles 列出本包时，这一层被应用。
+#
+# 这里只插入插件行：所有可调参数由 lib/config.js 的 schema 提供默认值，
+# 部署差异请在 profile 自己的 cordis.patch.yml 里写同 id 的行覆盖
+# （后应用的层按行胜出，且会替换整行 config）。
+- insert:
+    - id: whale-purse
+      name: 'whale-purse'
