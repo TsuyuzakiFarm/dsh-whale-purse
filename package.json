@@ -1,7 +1,7 @@
 {
-  "name": "whale-purse",
+  "name": "dsh-whale-purse",
   "description": "鲸鱼娘桌宠 · DeepSeek 余额 + 会话用量/花费监视（DSH 组合包：cordis.patch.yml 层 + Web 客户端 bundle）",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

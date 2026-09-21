@@ -1,4 +1,4 @@
-# whale-purse
+# dsh-whale-purse
 
 DeepSeek Harness 的鲸鱼娘桌宠插件：显示 DeepSeek 账户余额 + 当前会话用量/花费，透明立绘悬浮、可拖拽、点击开面板。
 

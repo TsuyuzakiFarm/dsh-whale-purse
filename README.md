@@ -1,4 +1,4 @@
-# whale-purse 🐋
+# dsh-whale-purse 🐋
 
 > 一只住在 DeepSeek Harness（DSH）里的鲸鱼娘桌宠，帮你盯着 DeepSeek 账户余额和当前会话的用量/花费。
 
@@ -22,7 +22,7 @@ A cute whale desktop pet for DeepSeek Harness that keeps an eye on your DeepSeek
 - ⚙️ **面板设置**：点面板右上角齿轮即可改 `model` / 低余额阈值 / 今日预算 / 「Pro 按 Flash 单价计费」开关，保存到本地 JSON，无需手改 YAML
 - 🧮 **会话用量**：读 `sessionProjections` 的 `tokenUsage` 投影，按官方价格折算花费（输入未命中 / 缓存命中 / 输出三桶，分桶条形图按金额占比绘制、每桶标注 token 数、金额与金额占比，避免缓存命中 token 占大头却几乎不花钱的误导；DeepSeek 官方没有「缓存写入」计费类别，故不展示该桶）；`model: auto` 时按会话实际请求头识别 flash/pro，识别为非 DeepSeek 模型（如 GPT / Claude）的会话不估算花费；已落盘消息按各自发生时的峰谷档与模型计价，进行中增量按当前档计价；DSH「在新会话中新建分支」checkout 出的历史 seed 不会重复计费，只统计新建分支后的新增用量
 - 📊 **历史趋势（双 Tab 面板）**：「当前」Tab 看余额与实时花费；「历史」Tab 看近 7 天花费柱状图（有 `sessionPersistence` 时自动合并已保存会话）+ 本会话每条提问的花费明细（多步循环自动合并成一行，问题前 10 字 + Tokens + 花费）
-- ⚡ **峰谷定价**：按官方口径，北京**周一至周五且非中国法定节假日**的 9:00-12:00 / 14:00-18:00 为高峰价，**其余时间（含周末与中国法定节假日全天）为谷价**；节假日表内置在 `lib/index.js` 的 `CN_HOLIDAY_RANGES`（2026 年）作兜底，并**每 6h 从 [holiday-cn](https://github.com/NateScarlet/holiday-cn)（出处为国务院办公厅放假安排通知，逐年 JSON）自动抓取今年与前后一年的放假/调休数据**并入，落盘缓存 `~/.dsh/whale-purse.holidays.json`（离线/重启仍有效），抓取失败时保持原数据、绝不影响计价；未公布年份退化为「周一至周五」规则；**2026-09-10 12:00 起 Flash 系列降价自动生效**（谷价 0.02 / 1 / 4 元）；面板显示当前档位与距下次切换倒计时；官方定价页每 6h 自动抓取；历史消息按各自时刻的价格时代计价（8/17 前统一价 → 8/17 起峰谷 v1 → 9/10 12:00 起 v2）
+- ⚡ **峰谷定价**：按官方口径，北京**周一至周五且非中国法定节假日**的 9:00-12:00 / 14:00-18:00 为高峰价，**其余时间（含周末与中国法定节假日全天）为谷价**；节假日表内置在 `lib/index.js` 的 `CN_HOLIDAY_RANGES`（2026 年）作兜底，并**每 6h 从 [holiday-cn](https://github.com/NateScarlet/holiday-cn)（出处为国务院办公厅放假安排通知，逐年 JSON）自动抓取今年与前后一年的放假/调休数据**并入，落盘缓存 `~/.dsh/dsh-whale-purse.holidays.json`（离线/重启仍有效），抓取失败时保持原数据、绝不影响计价；未公布年份退化为「周一至周五」规则；**2026-09-10 12:00 起 Flash 系列降价自动生效**（谷价 0.02 / 1 / 4 元）；面板显示当前档位与距下次切换倒计时；官方定价页每 6h 自动抓取；历史消息按各自时刻的价格时代计价（8/17 前统一价 → 8/17 起峰谷 v1 → 9/10 12:00 起 v2）
 - 🌗 **主题适配**：面板颜色与柱状图深浅随 DSH 浅色/深色主题切换（`--dsw-alias-*` token）
 - 🖥️ **多屏适配**：外接大屏/笔记本切换时自动把桌宠夹回视口内，不会丢
 - 🛡️ **友好错误**：余额/定价请求超时显示「请求超时」而非英文 `This operation was aborted`
@@ -33,8 +33,8 @@ A cute whale desktop pet for DeepSeek Harness that keeps an eye on your DeepSeek
 本包是标准 DSH **组合包**（`package.json` 声明 `dsh.bundle`），用插件管理器安装即可：
 
 ```bash
-dsh plugin --profile web add /path/to/whale-purse
-dsh --profile web --dump-config | grep -A3 whale-purse   # 确认层已生效
+dsh plugin --profile web add /path/to/dsh-whale-purse
+dsh --profile web --dump-config | grep -A3 dsh-whale-purse   # 确认层已生效
 ```
 
 安装后插件行来自包内的 `cordis.patch.yml` 层。**如果之前按旧方式手写过 insert 行，请先删掉它**：同一个 id 在组合期会冲突。只想临时试用也可以继续用旧写法：
@@ -42,8 +42,8 @@ dsh --profile web --dump-config | grep -A3 whale-purse   # 确认层已生效
 ```yaml
 # ~/.dsh/profiles/web/cordis.patch.yml
 - insert:
-    - id: whale-purse
-      name: 'whale-purse'
+    - id: dsh-whale-purse
+      name: 'dsh-whale-purse'
       config:
         model: auto          # auto | pro | flash
         dailyBudget: 5       # 今日花费超过 5 元时提醒（不写则不提醒）
@@ -51,7 +51,7 @@ dsh --profile web --dump-config | grep -A3 whale-purse   # 确认层已生效
 
 配置保存后热重载；浏览器端记得硬刷新（`Cmd+Shift+R`）。余额接口需要能解析到 `DEEPSEEK_API_KEY`（凭据缝 → 启动环境 → `process.env`，逐层回退）。
 
-> 推荐在鲸鱼娘面板右上角点 **⚙ 设置** 修改 `model`、低余额阈值、今日预算、`proBilledAsFlash`、`makeupWorkdaysArePeak`；保存后写入 `statePath`（默认 `~/.dsh/whale-purse.settings.json`），优先级高于 YAML 里的同名配置，无需重启。
+> 推荐在鲸鱼娘面板右上角点 **⚙ 设置** 修改 `model`、低余额阈值、今日预算、`proBilledAsFlash`、`makeupWorkdaysArePeak`；保存后写入 `statePath`（默认 `~/.dsh/dsh-whale-purse.settings.json`），优先级高于 YAML 里的同名配置，无需重启。
 
 ### 安全说明
 
@@ -78,15 +78,15 @@ HTTP 接口注册在 DSH `connection` 服务的 exact Fetch 路由表上（`/api
 | `dailyBudget` | 未设置 | 今日花费预算（CNY），超过后面板提示 |
 | `proBilledAsFlash` | `true` | 2026-09-10 12:00 起官方把 V4 Pro 请求路由到 V4.1 Flash 并按 Flash 单价计费；`false` 则按 Pro 自身价目估算 |
 | `makeupWorkdaysArePeak` | `false` | 官方调休上班的周末（如 2026-09-20、10-10）是否按工作日计高峰（9:00-12:00 / 14:00-18:00）。默认 `false`：按官网页脚注字面口径「周末全天均为空闲时段」 |
-| `statePath` | `~/.dsh/whale-purse.settings.json` | 面板设置的落盘路径 |
-| `holidayCachePath` | `~/.dsh/whale-purse.holidays.json` | 节假日缓存的落盘路径 |
+| `statePath` | `~/.dsh/dsh-whale-purse.settings.json` | 面板设置的落盘路径 |
+| `holidayCachePath` | `~/.dsh/dsh-whale-purse.holidays.json` | 节假日缓存的落盘路径 |
 
 > 客户端轮询节奏（余额 30s、当前会话花费 3s）跟随浏览器渲染，属于客户端常量，不走配置。
 
 ## 项目结构
 
 ```
-whale-purse/
+dsh-whale-purse/
 ├── cordis.patch.yml    # 组合包层：profile 列出本包时插入插件行（dsh.bundle.patch）
 ├── lib/
 │   ├── config.js       # 配置契约：Standard Schema v1 校验 + 默认值（零依赖实现）
@@ -109,6 +109,12 @@ whale-purse/
 `whale-sprite.webp` 由 PNG 源图生成：`cwebp -q 90 -alpha_q 100 -m 6 assets/whale-sprite.png -o assets/whale-sprite.webp`。改完素材后运行 `npm run embed` 重新内联。
 
 ## 更新日志
+
+### 0.2.1 —— 更名为 dsh-whale-purse（2026-09-21）
+
+- 插件包名、组合包层 id/name、客户端 bundle id、插件导出名统一为 **`dsh-whale-purse`**（社区通行的 `dsh-*` 命名），安装目录与 GitHub 仓库同步更名
+- 面板设置与节假日缓存默认落盘路径随之改为 `~/.dsh/dsh-whale-purse.settings.json` / `~/.dsh/dsh-whale-purse.holidays.json`（旧文件已就地迁移，配置不丢）
+- 不变：HTTP 路由仍是 `/api/whale-purse/*`（内部接口路径，与包名解耦），客户端 i18n 命名空间与 CSS 前缀仍是 `whale-purse.*` / `.wp-*`
 
 ### 0.2.0 —— 规范对齐（2026-09-21）
 

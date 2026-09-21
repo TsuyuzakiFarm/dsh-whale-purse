@@ -92,7 +92,7 @@ function makeCtx() {
 }
 
 const { mod, requests } = makeModule()
-check('导出插件名', mod.name, 'whale-purse')
+check('导出插件名', mod.name, 'dsh-whale-purse')
 check('inject 声明 connection（不再需要 webServer）', mod.inject.includes('connection'), true)
 check('inject 声明 sessions', mod.inject.includes('sessions'), true)
 check('inject 不再声明 webServer', mod.inject.includes('webServer'), false)
