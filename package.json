@@ -1,7 +1,7 @@
 {
   "name": "dsh-whale-purse",
   "description": "鲸鱼娘桌宠 · DeepSeek 余额 + 会话用量/花费监视（DSH 组合包：cordis.patch.yml 层 + Web 客户端 bundle）",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -30,6 +30,7 @@
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-workspace",
         "@deepseek-ai/dsh-api-session-controller"
       ]
     }
@@ -48,7 +49,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node scripts/smoke-test.mjs && node scripts/plugin-test.mjs",
+    "test": "node scripts/smoke-test.mjs && node scripts/plugin-test.mjs && node scripts/client-test.mjs",
     "embed": "node scripts/embed-asset.mjs",
     "screenshot": "node scripts/screenshot.mjs"
   },

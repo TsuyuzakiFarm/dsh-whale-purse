@@ -137,6 +137,13 @@ bash ~/.dsh/skills/shared/whale-purse-check.sh    # 本机一键体检（源码/
 
 ## 更新日志
 
+### 0.3.0（2026-09-24）修复 0.1.7 上面板内容大面积缺失
+
+- **根因**：DSH 0.1.7-rc.1 移除了客户端 `sessions.currentProvideInfo`，`sessions.list` 快照也不再带 `current`，当前会话改由 `uiWorkspace.selection`（持久化名 `dsh.sessions.current`）承载。插件仍按旧 API 解析，`sessionId` 恒为 `undefined`，于是「本会话花费」区块整块消失（请求退化成 `missing-session`）、「历史」Tab 的消息明细请求带上 `session=undefined`（`unknown-session`）——**宿主接口与数据一直是好的**（带认证直连 `/cost`、`/messages`、`/daily` 均返回真实金额）
+- **修复**：新增 `currentSessionSource()`，按 `currentProvideInfo.sessionId`（≤0.1.5）→ `list.current`（0.1.5/0.1.6）→ `uiWorkspace.selection.sessionId`（≥0.1.7）→ `byId` 中 `retainedBy.mainView > 0` 的顺序解析并同时订阅；`uiWorkspace` 用 `ctx.inject` 按需绑定（旧版没有该服务，不能写成必需依赖）
+- **顺带修复两处同族回归**：①「任务完成」气泡的跳转——0.1.7 已无 `sessions.open`，改走 `uiWorkspace.openSession(id)`，旧版保留回退；② 气泡本身的判定读 `summary.completed`，而 0.1.7 的列表摘要已移除该字段，改用「未被主视图保留」（`retainedBy.mainView === 0`）等价表达
+- 新增 `scripts/client-test.mjs`（19 项断言：三种版本形状 + 订阅退订 + 打开会话路由 + `apply` 接线），已并入 `npm test`；`dsh.client.inject` 增加 `@deepseek-ai/dsh-client-ui-workspace`
+
 ### 0.2.2（2026-09-24）适配 DSH 0.1.7-rc.1
 
 - **依赖声明**：删掉自造的 `dsh.engines.dsh` 字段——0.1.7-rc.1 不读它，改由新的「插件兼容性预检」读 `peerDependencies`。现在按官方约定声明 `@deepseek-ai/dsh: >=0.1.5-rc.2`（+ 对应 `devDependencies`），运行时不匹配时会在启动预检里被明确点名并可 `dsh plugin allow-version` 放行
