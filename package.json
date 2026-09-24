@@ -1,7 +1,7 @@
 {
   "name": "dsh-whale-purse",
   "description": "鲸鱼娘桌宠 · DeepSeek 余额 + 会话用量/花费监视（DSH 组合包：cordis.patch.yml 层 + Web 客户端 bundle）",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -17,12 +17,10 @@
     "scripts",
     "assets/whale-sprite.webp",
     "README.md",
+    "ADAPTATION.md",
     "LICENSE"
   ],
   "dsh": {
-    "engines": {
-      "dsh": ">=0.1.5-rc.2"
-    },
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
@@ -37,8 +35,17 @@
     }
   },
   "peerDependencies": {
+    "@deepseek-ai/dsh": ">=0.1.5-rc.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh": "0.1.7-rc.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "scripts": {
     "test": "node scripts/smoke-test.mjs && node scripts/plugin-test.mjs",
@@ -54,5 +61,14 @@
     "desktop-pet",
     "cordis"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "author": "TsuyuzakiMahiru <jingyee1900@live.cn>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TsuyuzakiFarm/dsh-whale-purse.git"
+  },
+  "homepage": "https://github.com/TsuyuzakiFarm/dsh-whale-purse#readme",
+  "bugs": {
+    "url": "https://github.com/TsuyuzakiFarm/dsh-whale-purse/issues"
+  }
 }

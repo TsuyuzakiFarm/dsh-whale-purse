@@ -9,7 +9,7 @@
 | 项目 | 说明 |
 | --- | --- |
 | 形态 | DSH 组合包（`dsh.bundle`）+ Web 客户端 bundle；纯 ES，无构建步骤 |
-| 需要 | DSH `>= 0.1.5-rc.2`；可解析 `DEEPSEEK_API_KEY` 的凭据缝（缺失时只影响余额，不影响花费统计） |
+| 需要 | DSH `>= 0.1.5-rc.2`（已在 `0.1.7-rc.1` 上验证）；可解析 `DEEPSEEK_API_KEY` 的凭据缝（缺失时只影响余额，不影响花费统计） |
 | 仓库 | 上游 [Suiwan/whale-purse](https://github.com/Suiwan/whale-purse) → 本仓库 [TsuyuzakiFarm/dsh-whale-purse](https://github.com/TsuyuzakiFarm/dsh-whale-purse) |
 | 许可 | MIT |
 
@@ -136,6 +136,16 @@ bash ~/.dsh/skills/shared/whale-purse-check.sh    # 本机一键体检（源码/
 - 排障：桌宠不出现 → 先硬刷新；再确认 `dsh.profile.bundles` 里有 `dsh-whale-purse`，且 profile 的 `cordis.patch.yml` 里**没有**同名 insert。余额「不可用」→ 检查 `DEEPSEEK_API_KEY` 能否被凭据缝解析。
 
 ## 更新日志
+
+### 0.2.2（2026-09-24）适配 DSH 0.1.7-rc.1
+
+- **依赖声明**：删掉自造的 `dsh.engines.dsh` 字段——0.1.7-rc.1 不读它，改由新的「插件兼容性预检」读 `peerDependencies`。现在按官方约定声明 `@deepseek-ai/dsh: >=0.1.5-rc.2`（+ 对应 `devDependencies`），运行时不匹配时会在启动预检里被明确点名并可 `dsh plugin allow-version` 放行
+- **修复：历史趋势一直只统计当前进程**。旧代码探测 `ctx.sessionPersistence.readFrom()` / `listSnapshots()`，而这两个名字在任何版本的 `sessionPersistence` 上都不存在，于是整段已落盘会话被静默跳过（`coverage` 永远停在 `live`）。改按真实契约读取：`list()` → `open(id,'read')` → `handle.read(0)`，分支 seed 边界取 `handle.inheritedEventCount`；同一 `revision` 仍走事件缓存。实测跨 session 格式 v3 → v4 正常
+- **`seedStartSeq` 优先读 `session.inheritedEventCount`**（0.1.5 起公开的权威字段），`seedLength` 降为回退
+- **客户端路由改文档相对**：DSH 0.1.7-rc.1 起官方自己的浏览器路由一律按 `document.baseURI` 解析（页面可被反代挂在子路径下）。`lib/client.js` 的 6 个 `/api/whale-purse/*` 请求改走 `apiUrl()`，页面在站点根时结果逐字不变
+- 补 `engines.node >= 22`
+- 补齐包元数据：此前没有 `author` / `repository` / `homepage` / `bugs` 字段，现指向 `TsuyuzakiFarm/dsh-whale-purse`（与 `amap-trip` 的形状一致）
+- 兼容性验证：真实 `0.1.7-rc.1` 进程内探针（`whalePurse` 服务 + 4 个可选缝 + 10 条 HTTP 路由）、`npm test`、客户端 bundle 引导冒烟全通过
 
 ### 0.2.1（2026-09-21）更名 dsh-whale-purse
 
