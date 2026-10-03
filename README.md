@@ -9,7 +9,7 @@
 | 项目 | 说明 |
 | --- | --- |
 | 形态 | DSH 组合包（`dsh.bundle`）+ Web 客户端 bundle；纯 ES，无构建步骤 |
-| 需要 | DSH `>= 0.1.5-rc.2`（已在 `0.1.7-rc.1` 上验证）；可解析 `DEEPSEEK_API_KEY` 的凭据缝（缺失时只影响余额，不影响花费统计） |
+| 需要 | DSH `>= 0.1.5-rc.2`（已在 `0.2.1-alpha.1` 上验证）；可解析 `DEEPSEEK_API_KEY` 的凭据缝（缺失时只影响余额，不影响花费统计） |
 | 仓库 | 上游 [Suiwan/whale-purse](https://github.com/Suiwan/whale-purse) → 本仓库 [TsuyuzakiFarm/dsh-whale-purse](https://github.com/TsuyuzakiFarm/dsh-whale-purse) |
 | 许可 | MIT |
 
@@ -136,6 +136,13 @@ bash ~/.dsh/skills/shared/whale-purse-check.sh    # 本机一键体检（源码/
 - 排障：桌宠不出现 → 先硬刷新；再确认 `dsh.profile.bundles` 里有 `dsh-whale-purse`，且 profile 的 `cordis.patch.yml` 里**没有**同名 insert。余额「不可用」→ 检查 `DEEPSEEK_API_KEY` 能否被凭据缝解析。
 
 ## 更新日志
+
+### 0.3.1（2026-10-03）适配 DSH 0.2.1-alpha.1
+
+- **依赖声明**：`devDependencies["@deepseek-ai/dsh"]` `0.1.7-rc.1` → `0.2.1-alpha.1`（成对声明）。peer 侧 `@deepseek-ai/dsh: >=0.1.5-rc.2` **不变**——下限取真实可用过的最低版，不误伤 0.1.5/0.1.6/0.2.0
+- **修复截图脚本的写死路径**：`scripts/screenshot.mjs` 原来 import 的是**另一台机器**（macOS）的 npx 缓存路径 `/private/tmp/pwcli-npm-cache/_npx/31e32ef8478fbf80/...`，浏览器可执行文件也写死 `/Users/lizijian/...`，在本机必然 `ERR_MODULE_NOT_FOUND`。现改为按裸包名解析 `playwright-core` / `playwright`，浏览器优先用 playwright 自己登记的 `chromium.executablePath()`；地址 / 产物目录 / 浏览器路径分别可用 `DSH_SCREENSHOT_URL` / `DSH_SCREENSHOT_OUT` / `DSH_SCREENSHOT_BROWSER` 覆盖
+- **0.2.1-alpha.1 没有触及本插件用到的任何内核契约**。运行时 invariant 移除、`agent.inject` 的 `source.kind` 收紧、子路径插件展示元数据、Automation tasks bundle 退休、`llm-deepseek` 拆包等逐条核对后确认不适用（见 [ADAPTATION.md](ADAPTATION.md) 第八节）。`lib/index.js` / `lib/client.js` / `lib/config.js` / `cordis.patch.yml` **逐字节未改**
+- 兼容性：在真实 `0.2.1-alpha.1` 进程内启动无告警，`/api/whale-purse/balance` 返回 200、客户端 bundle 正常注入；`npm test` 三套全过
 
 ### 0.3.0（2026-09-24）修复 0.1.7 上面板内容大面积缺失
 
