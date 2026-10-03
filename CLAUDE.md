@@ -28,4 +28,4 @@ npm test
 - 可调参数一律进 `lib/config.js` 的 schema（默认值 + 范围），别在代码里写死；非法配置必须在加载期报错。
 - HTTP 路由只许注册到 `ctx.connection.fetch`（`/api` 通道，带浏览器认证 + Host/Origin 围栏）；不要用 `ctx.webServer.register()` 直挂裸路由。
 - 外部资源（定时器、在途请求）走 `ctx.effect`，卸载时中止并等待收敛；可选服务用 `ctx.inject` 绑定，不要用 `ctx.get` 探测。
-- 截图脚本 `scripts/screenshot.mjs` 依赖本机 playwright-core 缓存路径，仅本地调试用。
+- 截图脚本 `scripts/screenshot.mjs` 按裸包名解析 `playwright-core` / `playwright`，浏览器用 playwright 登记的那一份；地址、产物目录、浏览器路径分别可用 `DSH_SCREENSHOT_URL` / `DSH_SCREENSHOT_OUT` / `DSH_SCREENSHOT_BROWSER` 覆盖。**不要**写死 npx 缓存目录或某台机器的绝对路径。

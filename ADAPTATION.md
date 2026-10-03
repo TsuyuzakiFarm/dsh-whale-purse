@@ -1,5 +1,8 @@
 # 版本适配记录：DSH 0.1.5-rc.3 → 0.1.7-rc.1
 
+> **本文件含两轮适配。** 第一轮（`0.1.5-rc.3` → `0.1.7-rc.1`，含 0.2.2 与 0.3.0）保留原样；
+> 第二轮（**从文件末的「第二轮适配：DSH 0.2.0-rc.2 → 0.2.1-alpha.1」起**）见第七节及其后。
+
 本文件记录 `dsh-whale-purse` 为适配 DSH `0.1.7-rc.1` 所做的改动、验证方式与回退办法。
 上游基线是备份里的 `0.2.1`；本次适配后版本号为 **`0.2.2`**，随后因
 「当前会话」解析在 0.1.7 上失效，追加修复并升到 **`0.3.0`**（见第六节）。
@@ -188,3 +191,104 @@ dsh --profile web --patch ./extra.yml
 **验证**：`scripts/client-test.mjs` 19 项断言全过（三种版本形状 + 订阅退订 + 打开会话路由 +
 `apply` 接线）；对真机接口的探测（见第四节第 5 条）证明修复后客户端会发出的那两个请求
 都返回真实数据。
+
+---
+
+# 第二轮适配：DSH 0.2.0-rc.2 → 0.2.1-alpha.1
+
+本次适配后版本号为 **`0.3.1`**（`0.3.0` → `0.3.1`）。上面第一轮的记录保留原样。
+
+> **版本线说明。** 本机 checkout 上曾有一个未推送的 `0.2.3` 提交
+> （`313f077`，主题与远端 `0.3.0`（`fb46b93`）**逐字相同**）。远端随后把同一个修复
+> 以 `0.3.0` 发布并打了 `v0.3.0`。核对 `git diff 313f077 fb46b93` 后确认：两者只差
+> `ADAPTATION.md` / `README.md` / `package.json` 里的**版本号字符串**，代码逐字节一致。
+> 因此本轮以远端 `0.3.0` 为基线，把本地冗余提交丢弃，适配作为 **`0.3.1`** 落地。
+
+## 七、这一轮为什么"改动很小"
+
+先说结论：**0.2.1-alpha.1 没有破坏本插件用到的任何内核契约**，这一轮实质改动只有
+依赖声明、一个写死路径的修复，以及版本号。下面是判定依据，不是"看起来没事"。
+
+权威依据是技能内置的迁移指南：`dsh-plugin-dev/docs/upgrade-guide/v0.2.0-rc.2/`
+（目录名是**升级前**版本，四篇：`remove-runtime-invariants`、
+`subpath-plugin-display-manifest`、`schedule-bundle-retired`、`account-sign-in-errors`），
+以及技能 `SKILL.md` 第 6 节的破坏性变更表。
+
+### 改动清单
+
+| 位置 | 改动 | 原因 |
+| --- | --- | --- |
+| `package.json` | `version` 0.3.0 → 0.3.1 | 兼容性预检的豁免按 `name@version` 记账；换了运行期就是要换版本号 |
+| `package.json` | `devDependencies["@deepseek-ai/dsh"]` `0.1.7-rc.1` → `0.2.1-alpha.1` | dev 侧要与运行期同版本；peer 侧 `>=0.1.5-rc.2` 保持不动（下限取真实可用过的最低版，不误伤 0.1.5/0.1.6/0.2.0） |
+| `scripts/screenshot.mjs` | 删掉写死的 npx 缓存路径与 macOS 浏览器绝对路径 | 与第一轮修 npx 哈希路径同一类问题：`/private/tmp/pwcli-npm-cache/_npx/31e32ef8478fbf80/...` 是**另一台机器**（macOS）的缓存，本机必然 `ERR_MODULE_NOT_FOUND`；浏览器路径写的是 `/Users/lizijian/...` |
+| `CLAUDE.md` | 同步截图脚本的新用法 | 原注写的是"依赖本机 playwright-core 缓存路径" |
+
+`screenshot.mjs` 现在按裸包名解析 `playwright-core` / `playwright`，浏览器优先用
+playwright 自己登记的 `chromium.executablePath()`，地址 / 产物目录 / 浏览器路径分别可用
+`DSH_SCREENSHOT_URL` / `DSH_SCREENSHOT_OUT` / `DSH_SCREENSHOT_BROWSER` 覆盖。
+
+## 八、逐项核对过、确认无需改动的契约
+
+用 0.2.1-alpha.1 的真实类型定义逐条核对（`node_modules/@deepseek-ai/dsh@0.2.1-alpha.1`
+及其 291 个 `@deepseek-ai/*` 依赖）：
+
+| 用到的能力 | 0.2.0-rc.2 → 0.2.1-alpha.1 |
+| --- | --- |
+| `export const inject = ['connection', 'sessions']` | 服务名与语义未变；启动日志确认这两个服务就绪后本插件才激活 |
+| `ctx.connection.fetch.register({path, methods, requestBody, fetch})` | `ConnectionFetchRoute` 逐字未变（`dsh-client-connection` 的 `lib/types` 与 0.2.0-rc.2 **逐字节相同**） |
+| `ctx.inject([name], scope => …)` + `scope.effect(fn, label)`（四个可选缝） | cordis `4.0.4 → 4.0.5-alpha.1`，`cordis` 的 `lib/types` **逐字节相同** |
+| `ctx.provide('whalePurse', service)` | 未变 |
+| `ctx.sessions.get(id)` / `ctx.sessionProjections` / `ctx.sessionPersistence` | 三个包的类型定义均未变（后两者逐字节相同） |
+| `export const Config`（手写解析，不用 Schemastery） | 与 DSH 版本解耦，未变 |
+| `dsh.bundle.patch` → `cordis.patch.yml` 的单行 `insert` | 0.2.1 的 profile 组合未变；`--dump-config` 里本行正常出现在 `# == dsh-whale-purse` 段 |
+| `dsh.client.platform = "web"` + `exports["./client"]` | `dsh-client-modules` 的解析规则未变；0.2.1 的启动页把 `dsh-whale-purse` 正常列进客户端模块注入表 |
+| `dsh.client.inject` 的五个包名 | 五个包在 0.2.1 里**全部存在**，且被 `dsh-client-ui-layout` / `dsh-api-session-controller` 等正常供给 |
+
+### 明确**不适用**的破坏性变更（逐条排除）
+
+| 0.2.1 的破坏性变更 | 本插件为何不受影响 |
+| --- | --- |
+| 运行时 invariant 整体移除（`@deepseek-ai/dsh-invariants`、`ctx.invariants`、`<pkg>/invariant`） | 全仓库 `grep -E "invariant\|INVARIANT"` 在本插件里**零命中**；`cordis.patch.yml` 里也没有相关行 |
+| `agent.inject` / `followup` 的 `source.kind` 拒绝 `{kind:'plugin'}` | 本插件从不注入会话消息，没有 `agent.inject` / `followup` 调用 |
+| 子路径插件不再读 `<子路径>/package.json` | 本插件的挂载行是**包根**（`name: 'dsh-whale-purse'`），不是子路径插件；`dsh.client` 是客户端半边机制，与子路径插件展示元数据是两回事 |
+| Automation tasks bundle 退休 | 本插件不依赖 `@deepseek-ai/dsh-experimental-schedule-bundle`；profile 的 `dsh.profile.bundles` 里也没有它 |
+| `@deepseek-ai/dsh-llm-deepseek` 拆包 | 本插件不引用该包（余额走官方 HTTP 接口，不经过 LLM 适配器） |
+| `WorkspaceController.initializeDefault` 签名变化 | 未使用 |
+| Auto 审批预设固定 `danger-full-access` + `ask` | 本插件不注册审批策略、不按审批策略分支 |
+| `ctx.typert` / `ctx.typertGateway` 新增 `hasLiveClient()` | 未使用 |
+| `PreToolDecision.ask` 新增可选 `displayReason` | 纯加法；本插件不返回 `ask` |
+
+## 九、验证方式（全部在 DSH 0.2.1-alpha.1 上跑）
+
+测试环境全部建在会话工作区内，**没有改动本机 `~/.dsh`**：
+
+- `testenv/` — `npm i @deepseek-ai/dsh@0.2.1-alpha.1`（`node_modules/@deepseek-ai` 下 291 个包）；
+- `testhome/` — 隔离的 `DSH_HOME`，`profiles/web/` 里用 `node_modules` 软链挂本插件，
+  `dsh.profile.bundles` 列出 `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app` + `dsh-whale-purse`。
+
+1. **兼容性预检**：直接调用 0.2.1 自己的
+   `@deepseek-ai/dsh-app-boot` 导出的 `evaluatePluginCompatibility()`
+   （运行期版本 `getDshRuntimeVersion()` = `0.2.1-alpha.1`）→ **COMPATIBLE**。
+   注意该函数用 `semver.satisfies(..., { includePrerelease: true })`，所以
+   `>=0.1.5-rc.2` 这类"带预发布下界"的范围能正确放行 `0.2.1-alpha.1`。
+2. **组合校验**：`dsh --profile web --dump-config` 退出码 0，1325 行，stderr 为空；
+   能看到 `# == dsh-whale-purse` 层与 `- id: dsh-whale-purse / name: dsh-whale-purse` 行。
+3. **真实进程启动**：`dsh --profile web --no-open --port 39988` 正常起服务，无
+   `module-not-found`、无 `patch: entry ... not found`、无"required plugin did not activate"。
+   插件在启动时创建了 `$DSH_HOME/dsh-whale-purse.holidays.json`（后台刷新生效的证据）。
+4. **客户端半边**：从启动页取到注入行
+   `"id":"dsh-whale-purse","url":"plugins/??dsh-whale-purse/client.js&rev=...","inject":[...]`，
+   `inject` 五个包名原样保留；实际拉取该 URL 返回
+   `http=200 size=126250 type=text/javascript`，内容为首行注释 `dsh-whale-purse — browser half.`。
+5. **宿主接口**：带启动 token 访问 `/api/whale-purse/balance` 返回 `http=200` 与合法 JSON
+   （本环境无 key，故 `available:false` + 明确的 `no API key` 说明——**正是期望行为**，
+   同时反证路由确实注册到了 `/api` 围栏之内：未带 token 时同一路径返回 `401 unauthorized`）。
+6. **既有测试套件**：`npm test` = `smoke-test.mjs` + `plugin-test.mjs` + `client-test.mjs` 全过。
+
+## 十、回退
+
+把 `package.json` 的 `version` 与 `devDependencies["@deepseek-ai/dsh"]` 换回
+`0.3.0` / `0.1.7-rc.1`，并用第一轮的 `scripts/screenshot.mjs` 覆盖回来即可。
+`lib/index.js` / `lib/client.js` / `lib/config.js` / `cordis.patch.yml`
+本轮**逐字节未改**。
+
